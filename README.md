@@ -1,43 +1,53 @@
 # Job Search Research Agent
 
-A Python + LangGraph-based research agent designed to help users evaluate, analyze, and process job descriptions efficiently.
+A Python + LangGraph-based research agent designed to help users evaluate, analyze, and process job descriptions and candidate resumes efficiently.
 
-> **Note:** This repository currently represents **Phase 1** of the project, focusing exclusively on the core agent architecture. Web search, tool usage, database persistence, resume parsing, FastAPI endpoints, Docker support, and automated evaluation will be introduced in subsequent phases.
+> **Note:** This repository currently represents **Phase 2** of the project, focusing on tool integration, structured candidate matching, web research, and source grounding. Persistent database storage (SQLite), FastAPI endpoints, Docker support, and automated evaluation harnesses will be introduced in Phase 3+.
 
 ---
 
-## 🏗️ Architecture
+## 🏗️ Phase 2 Architecture
 
-Phase 1 establishes the fundamental flow of the research agent using **LangGraph**:
+In Phase 2, the agent is upgraded with a dynamic tool-calling architecture. The LLM determines which tools are necessary based on the job description and candidate resume input:
 
 ```text
-User Job Description
-        │
-        ▼
-     Planner (LLM extracts structured criteria)
-        │
-        ▼
-    Agent State (TypedDict containing job_description, plan, etc.)
-        │
-        ▼
- Response Generator (LLM synthesizes summary, requirements, and assessment)
-        │
-        ▼
-   Final Output
+               ┌── Web Search (Tavily API)
+               │
+Job Description│── Resume Parser (LLM Extractor)
+       ↓       │
+    Planner ───┤── Job Matcher (Requirements vs Resume)
+       ↓       │
+  Tool Agent ──┤── Research Collector (State Organizer)
+       ↓
+Response Generator
+       ↓
+  Final Analysis
 ```
 
-### Graph Components
-1. **Agent State (`agent/state.py`)**: A `TypedDict` structure holding `job_description`, `messages`, `plan`, and `final_response`.
-2. **Planner Node (`agent/planner.py`)**: Uses OpenAI LLM structured output (`Pydantic`) to extract required skills, experience, education, location, responsibilities, and preferred skills.
-3. **Response Generator Node (`agent/generator.py`)**: Uses the structured plan and job description to produce a concise summary, key requirements list, and an initial job assessment.
-4. **Graph Execution (`agent/graph.py`)**: Configures the state transition: `planner` ➔ `response_generator` ➔ `END`.
+### Graph Execution Workflow
+1. **Planner Node (`agent/planner.py`)**: Analyzes the raw job description and extracts structured evaluation criteria.
+2. **Tool Agent Node (`agent/graph.py`)**: Evaluates state and decides dynamically which tools to invoke. Bounded by a maximum iteration limit (`MAX_ITERATIONS = 5`) to prevent infinite tool-calling loops.
+3. **Tool Execution Node (`agent/graph.py`)**: Executes requested tool calls and updates `AgentState` (`tool_results`, `resume_data`, `job_match`, `research`).
+4. **Response Generator Node (`agent/generator.py`)**: Synthesizes all gathered information, grounding company details in source links and highlighting candidate skill matches/gaps.
+
+---
+
+## 🧰 Available Tools
+
+| Tool | File | Description |
+| :--- | :--- | :--- |
+| `search_web` | `tools/web_search.py` | Searches company & role information via Tavily API; returns normalized `title`, `url`, and `snippet`. |
+| `parse_resume` | `tools/resume_parser.py` | Extracts structured candidate details (`skills`, `frameworks`, `experience`, `education`, `projects`) from raw resume text. |
+| `match_job` | `tools/job_matcher.py` | Compares candidate skills and experience against job requirements to identify matching skills, missing skills, and potential gaps. |
+| `store_research` | `tools/research_store.py` | Organizes key research findings into the agent state. |
 
 ---
 
 ## 🛠️ Tech Stack
 - **Python**: 3.11+
-- **LangGraph**: Workflow orchestration
+- **LangGraph**: Workflow & tool-calling orchestration
 - **LangChain / LangChain OpenAI**: LLM integration and structured outputs
+- **Tavily Python**: Web search API integration
 - **Pydantic**: Data schema definition and validation
 - **python-dotenv**: Environment configuration
 - **pytest**: Test suite framework
@@ -50,21 +60,29 @@ User Job Description
 Job-Search-Research-Agent/
 │
 ├── agent/
-│   ├── __init__.py      # Package initialization
-│   ├── state.py         # TypedDict state definition
-│   ├── planner.py       # Planner node implementation
-│   ├── graph.py         # LangGraph workflow compiler
-│   └── generator.py     # Response generator node implementation
+│   ├── __init__.py       # Package initialization
+│   ├── state.py          # Extended AgentState (TypedDict)
+│   ├── planner.py        # Planner node
+│   ├── generator.py      # Final response generator node
+│   └── graph.py          # LangGraph workflow with tool-calling loop
+│
+├── tools/
+│   ├── __init__.py       # Tools package export
+│   ├── web_search.py     # Web search tool (Tavily)
+│   ├── resume_parser.py  # Resume parsing tool
+│   ├── job_matcher.py    # Job matching tool
+│   └── research_store.py # State research collector tool
 │
 ├── tests/
-│   ├── __init__.py      # Test package initialization
-│   └── test_agent.py    # Unit tests for state, planner, generator, and graph
+│   ├── __init__.py       # Test package initialization
+│   ├── test_agent.py     # Agent state, planner, generator, and graph tests
+│   └── test_tools.py     # Unit tests for all tools (100% mocked APIs)
 │
-├── .env.example         # Template for environment variables
-├── .gitignore            # Git ignore configuration
-├── requirements.txt     # Python dependencies
-├── main.py              # CLI entry point
-└── README.md            # Project documentation
+├── .env.example          # Environment variable placeholders
+├── .gitignore             # Git ignore configuration
+├── requirements.txt      # Python dependencies
+├── main.py               # Updated CLI entry point
+└── README.md             # Project documentation
 ```
 
 ---
@@ -77,7 +95,7 @@ git clone https://github.com/samarthjoshi56/Job-Search-Research-Agent.git
 cd Job-Search-Research-Agent
 ```
 
-### 2. Create a Virtual Environment (Optional but recommended)
+### 2. Create a Virtual Environment
 ```bash
 python3 -m venv venv
 source venv/bin/activate
@@ -89,30 +107,33 @@ pip install -r requirements.txt
 ```
 
 ### 4. Configure Environment Variables
-Copy `.env.example` to `.env` and insert your OpenAI API key:
+Copy `.env.example` to `.env`:
 ```bash
 cp .env.example .env
 ```
-Edit `.env`:
+Edit `.env` to supply your credentials:
 ```env
 OPENAI_API_KEY=your_openai_api_key_here
+TAVILY_API_KEY=your_tavily_api_key_here
 ```
 
 ---
 
 ## 💻 How to Run
 
-Run the simple CLI entry point:
+Run the CLI interface:
 ```bash
 python main.py
 ```
-You will be prompted to paste a job description. Once done, press `Ctrl+D` (or `Ctrl+Z` on Windows) on a new line to process.
+
+1. **Job Description**: Paste job description text and press `Ctrl+D` (or `Ctrl+Z` on Windows) on a new line.
+2. **Resume Text** (Optional): Enter candidate resume text or press Enter to skip.
 
 ---
 
 ## 🧪 Running Tests
 
-Unit tests mock external LLM calls to verify graph structure, state validation, and output parsing without requiring an active API key:
+Unit tests mock external LLM and Tavily API calls to ensure zero network dependencies during testing:
 
 ```bash
 pytest
@@ -121,7 +142,6 @@ pytest
 ---
 
 ## 🔮 Roadmap / Future Phases
-- **Phase 2**: Web Search Integration (Tavily/Google Search) & External Tools
-- **Phase 3**: Resume Parsing & Matching Analysis
-- **Phase 4**: Vector DB (FAISS/Chromadb) & Persistence (SQLite)
-- **Phase 5**: FastAPI REST API & Dockerization
+- **Phase 3**: Vector DB (FAISS/Chromadb) & Persistent Memory (SQLite Checkpointing)
+- **Phase 4**: PDF Resume Parser & Multi-format Document Processing
+- **Phase 5**: FastAPI REST Endpoints & Docker Containerization
